@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BTC Fast Reaction Zones — MEXC Live Dashboard</title>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#11151c; --panel2:#161c25; --line:#232b38;
+    --text:#e7ecf3; --dim:#8592a6; --green:#31d0aa; --red:#ff5d5d;
+    --amber:#ffb020; --blue:#4da3ff; --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+  header{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:14px 18px;border-bottom:1px solid var(--line);background:var(--panel);
+    flex-wrap:wrap;
+  }
+  header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px;}
+  header h1 span{color:var(--dim);font-weight:400;}
+  #status{font-family:var(--mono);font-size:12px;color:var(--dim);}
+  #status.live{color:var(--green);}
+  #status.err{color:var(--red);}
+  .top-price{font-family:var(--mono);font-size:22px;font-weight:600;}
+  .top-price.up{color:var(--green);} .top-price.down{color:var(--red);}
+  main{display:grid;grid-template-columns:1fr 320px;gap:0;height:calc(100vh - 58px);}
+  @media (max-width:900px){ main{grid-template-columns:1fr; height:auto;} }
+  #chartWrap{position:relative;background:var(--panel);}
+  #chart{width:100%;height:100%;min-height:420px;display:block;}
+  #priceLabels{position:absolute;top:0;right:0;bottom:0;width:64px;pointer-events:none;font-family:var(--mono);font-size:10.5px;color:var(--dim);}
+  .zoneTag{position:absolute;font-family:var(--mono);font-size:9.5px;padding:1px 4px;border-radius:3px;pointer-events:none;white-space:nowrap;}
+  #sidebar{border-left:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;overflow:hidden;}
+  .panel{border-bottom:1px solid var(--line);padding:12px 14px;}
+  .panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 8px;}
+  table.dash{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12.5px;}
+  table.dash td{padding:3px 0;border-bottom:1px solid rgba(255,255,255,.03);}
+  table.dash td:first-child{color:var(--dim);}
+  table.dash td:last-child{text-align:right;font-weight:600;}
+  .state-clear{color:var(--dim);}
+  .state-approach{color:var(--amber);}
+  .state-fast{color:#ff8a3d;}
+  .state-pressure{color:#ff8a3d;}
+  #alerts{flex:1;overflow-y:auto;padding:10px 14px;}
+  .alert-row{padding:7px 8px;margin-bottom:6px;border-radius:6px;font-size:12px;line-height:1.4;font-family:var(--mono);border-left:3px solid var(--dim);background:rgba(255,255,255,.02);}
+  .alert-row.long{border-color:var(--green);}
+  .alert-row.short{border-color:var(--red);}
+  .alert-row.approach{border-color:var(--amber);}
+  .alert-row .t{color:var(--dim);font-size:10.5px;}
+  #settingsToggle{cursor:pointer;font-size:12px;color:var(--blue);border:1px solid var(--line);padding:5px 10px;border-radius:6px;background:none;}
+  #settingsPanel{display:none;}
+  #settingsPanel.open{display:block;}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-size:12px;}
+  .row label{color:var(--dim);}
+  .row input{width:70px;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px;padding:3px 6px;font-family:var(--mono);}
+  .disclaimer{font-size:11px;color:var(--dim);padding:10px 14px;border-top:1px solid var(--line);line-height:1.5;}
+  button.primary{background:var(--blue);color:#04121f;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--dim);padding:8px 14px;border-bottom:1px solid var(--line);flex-wrap:wrap;}
+  .legend span{display:inline-flex;align-items:center;gap:5px;}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block;}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>BTC Fast Reaction Zones <span>· MEXC · 5m scalping alerts</span></h1>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div class="top-price" id="topPrice">—</div>
+    <div id="status">connecting…</div>
+    <button class="primary" id="notifyBtn">Enable notifications</button>
+  </div>
+</header>
+
+<div class="legend">
+  <span><span class="dot" style="background:#ff5d5d;"></span>Supply / resistance zone</span>
+  <span><span class="dot" style="background:#31d0aa;"></span>Demand / support zone</span>
+  <span><span class="dot" style="background:#4da3ff;"></span>Daily VWAP</span>
+  <span><span class="dot" style="background:#ffb020;"></span>Approach warning</span>
+</div>
+
+<main>
+  <div id="chartWrap"><canvas id="chart"></canvas></div>
+
+  <div id="sidebar">
+    <div class="panel">
+      <h2>Dashboard</h2>
+      <table class="dash" id="dashTable"></table>
+    </div>
+    <div class="panel">
+      <button id="settingsToggle">Settings ▾</button>
+      <div id="settingsPanel"></div>
+    </div>
+    <div class="panel" style="border-bottom:none;flex:1;display:flex;flex-direction:column;overflow:hidden;padding-bottom:0;">
+      <h2>Alert feed</h2>
+      <div id="alerts"></div>
+    </div>
+    <div class="disclaimer">
+      This dashboard is for manual monitoring only — it does not place trades. Scalping is high-risk;
+      signals here reflect one indicator's logic, not a guarantee. Not financial advice.
+    </div>
+  </div>
+</main>
+
+<script>
+// ============================================================================
+// CONFIG — mirrors the "5 minute" Auto profile of the Pine Script by default.
+// Adjustable in the Settings panel; values match the script's defaults.
+// ============================================================================
+const CFG = {
+  symbol: 'BTCUSDT',
+  pivotLeft: 3, pivotRight: 1,
+  reactionWindowBars: 2,
+  recentStructureLookback: 6,
+  volumeLength: 36,
+  maximumZoneAge: 288,
+  zoneWidthAtr: 0.28,
+  approachDistanceAtr: 0.15,
+  confluenceDistanceAtr: 0.45,
+  minimumCreationScore: 2.00,
+  minimumPivotVolume: 1.05,
+  confirmedRetestVolume: 1.05,
+  fastRetestVolumePace: 1.10,
+  departureWeight: 0.55,
+  touchPenalty: 0.50,
+  maximumZonesPerSide: 5,
+  maximumTouches: 3,
+  atrLength: 14,
+  emaFastLength: 20, emaSlowLength: 50,
+  trendPenalty: 0.65,
+  compressionPenalty: 0.65,
+  vwapExtensionAtr: 0.60, vwapBonus: 0.35,
+  minimumSignalScore: 2.20,
+  referenceTouchDistanceAtr: 0.12,
+  fastReactionDistanceAtr: 0.08,
+  confirmedReactionDistanceAtr: 0.15,
+  fastWickRatio: 0.15,
+  confirmedWickRatio: 0.25,
+  chartLevelWeight: 0.35,
+  recentStructureWeight: 0.60,
+  weight15M: 0.70, weight1H: 1.00, weight4H: 1.25, weightPreviousDay: 1.20,
+  smoothedBandWeight: 0.25,
+  sessionWeightAsia: 0.40, sessionWeightLondon: 0.50, sessionWeightNY: 0.50,
+};
+
+// Build the settings UI from CFG (numeric fields the user is most likely to tweak
+// if their brother's script uses different values than the profile defaults).
+const TUNABLE = ['pivotLeft','pivotRight','reactionWindowBars','zoneWidthAtr','approachDistanceAtr',
+  'confluenceDistanceAtr','minimumCreationScore','minimumPivotVolume','confirmedRetestVolume',
+  'fastRetestVolumePace','maximumZoneAge','maximumTouches','minimumSignalScore',
+  'fastReactionDistanceAtr','confirmedReactionDistanceAtr','fastWickRatio','confirmedWickRatio'];
+
+function buildSettingsUI(){
+  const panel = document.getElementById('settingsPanel');
+  panel.innerHTML = '';
+  TUNABLE.forEach(key=>{
+    const row = document.createElement('div');
+    row.className='row';
+    row.innerHTML = `<label>${key}</label><input type="number" step="0.01" data-key="${key}" value="${CFG[key]}">`;
+    panel.appendChild(row);
+  });
+  panel.querySelectorAll('input').forEach(inp=>{
+    inp.addEventListener('change', e=>{
+      const k = e.target.dataset.key;
+      CFG[k] = parseFloat(e.target.value);
+    });
+  });
+}
+buildSettingsUI();
+document.getElementById('settingsToggle').addEventListener('click', ()=>{
+  document.getElementById('settingsPanel').classList.toggle('open');
+});
+
+// ============================================================================
+// DATA FETCHING — MEXC public spot market API (no key required)
+// ============================================================================
+const BASE = 'https://api.mexc.com/api/v3/klines';
+
+async function fetchKlines(interval, limit){
+  const url = `${BASE}?symbol=${CFG.symbol}&interval=${interval}&limit=${limit}`;
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`MEXC ${interval} fetch failed: ${res.status}`);
+  const raw = await res.json();
+  return raw.map(r=>({
+    t: r[0], o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5], ct: r[6]
+  }));
+}
+
+// ============================================================================
+// INDICATOR HELPERS
+// ============================================================================
+function ema(values, length){
+  const out = new Array(values.length).fill(null);
+  const k = 2/(length+1);
+  let prev = null;
+  for(let i=0;i<values.length;i++){
+    if(values[i]==null){ continue; }
+    if(prev==null){ prev = values[i]; }
+    else{ prev = values[i]*k + prev*(1-k); }
+    out[i]=prev;
+  }
+  return out;
+}
+function sma(values, length){
+  const out = new Array(values.length).fill(null);
+  let sum=0;
+  for(let i=0;i<values.length;i++){
+    sum+=values[i];
+    if(i>=length) sum-=values[i-length];
+    if(i>=length-1) out[i]=sum/length;
+  }
+  return out;
+}
+// Wilder's RMA-based ATR, matching ta.atr()
+function atrRMA(candles, length){
+  const trs = candles.map((c,i)=>{
+    if(i===0) return c.h-c.l;
+    const prevClose = candles[i-1].c;
+    return Math.max(c.h-c.l, Math.abs(c.h-prevClose), Math.abs(c.l-prevClose));
+  });
+  const out = new Array(candles.length).fill(null);
+  let rma=null;
+  for(let i=0;i<trs.length;i++){
+    if(rma==null){
+      if(i>=length-1){
+        let seed=0; for(let j=i-length+1;j<=i;j++) seed+=trs[j];
+        rma = seed/length;
+        out[i]=rma;
+      }
+    } else {
+      rma = (rma*(length-1)+trs[i])/length;
+      out[i]=rma;
+    }
+  }
+  return out;
+}
+function dailyVwapSeries(candles){
+  const out = new Array(candles.length).fill(null);
+  let cumPV=0, cumV=0, curDay=null;
+  candles.forEach((c,i)=>{
+    const day = new Date(c.t).getUTCDate() + '-' + new Date(c.t).getUTCMonth();
+    if(day!==curDay){ curDay=day; cumPV=0; cumV=0; }
+    const tp = (c.h+c.l+c.c)/3;
+    cumPV += tp*c.v; cumV += c.v;
+    out[i] = cumV>0 ? cumPV/cumV : null;
+  });
+  return out;
+}
+function pivots(candles, left, right){
+  const highs=[], lows=[];
+  for(let i=left;i<candles.length-right;i++){
+    let isHigh=true, isLow=true;
+    const h=candles[i].h, l=candles[i].l;
+    for(let j=i-left;j<=i+right;j++){
+      if(j===i) continue;
+      if(candles[j].h>=h) isHigh=false;
+      if(candles[j].l<=l) isLow=false;
+    }
+    if(isHigh) highs.push(i);
+    if(isLow) lows.push(i);
+  }
+  return {highs, lows};
+}
+function lastClosed(candles, nowMs){
+  // returns the most recent candle whose close time has passed
+  for(let i=candles.length-1;i>=0;i--){
+    if(candles[i].ct <= nowMs) return candles[i];
+  }
+  return candles[candles.length-2] || null;
+}
+
+// ============================================================================
+// SESSION TRACKING (UTC): Asia 00-08, London 08-13, New York 13-21
+// ============================================================================
+function sessionOf(ms){
+  const h = new Date(ms).getUTCHours();
+  if(h>=0 && h<8) return 'asia';
+  if(h>=8 && h<13) return 'london';
+  if(h>=13 && h<21) return 'ny';
+  return null;
+}
+function computeSessions(candles){
+  // groups by (UTC date, session name); returns {current:{asia,london,ny}, last:{...}}
+  const groups = {};
+  const order = [];
+  candles.forEach(c=>{
+    const s = sessionOf(c.t);
+    if(!s) return;
+    const day = new Date(c.t).toISOString().slice(0,10);
+    const key = day+'|'+s;
+    if(!groups[key]){ groups[key]={name:s, hi:c.h, lo:c.l, key}; order.push(key); }
+    else{ groups[key].hi=Math.max(groups[key].hi,c.h); groups[key].lo=Math.min(groups[key].lo,c.l); }
+  });
+  const bySession = {asia:[], london:[], ny:[]};
+  order.forEach(k=>{ const g=groups[k]; if(bySession[g.name]) bySession[g.name].push(g); });
+  const result = {current:{}, last:{}};
+  ['asia','london','ny'].forEach(name=>{
+    const arr = bySession[name];
+    result.current[name] = arr.length? arr[arr.length-1] : null;
+    result.last[name] = arr.length>1 ? arr[arr.length-2] : null;
+  });
+  return result;
+}
+
+// ============================================================================
+// APP STATE
+// ============================================================================
+let candles5m = [];
+let higher = { m15:[], h1:[], h4:[], d1:[] };
+let supplyZones = []; // {top,bottom,score,touches,bornIdx,lastTouchIdx}
+let demandZones = [];
+let sentSignals = new Set(); // dedupe key per bar+type
+let lastClosedTime5m = 0;
+let chart, candleSeries;
+let notifyEnabled = false;
+
+function nearestSupplyDistance(close, refHigh){
+  let best = refHigh;
+  supplyZones.forEach(z=>{
+    if(z.bottom>=close) best = Math.min(best, z.bottom-close);
+  });
+  return best;
+}
+function nearestDemandDistance(close, refLow){
+  let best = refLow;
+  demandZones.forEach(z=>{
+    if(z.top<=close) best = Math.min(best, close-z.top);
+  });
+  return best;
+}
+function distanceToResistance(close, refs){
+  let best = 1e20;
+  refs.forEach(r=>{ if(r!=null && r>=close) best=Math.min(best, r-close); });
+  return best;
+}
+function distanceToSupport(close, refs){
+  let best = 1e20;
+  refs.forEach(r=>{ if(r!=null && r<=close) best=Math.min(best, close-r); });
+  return best;
+}
+
+function logAlert(kind, text){
+  const box = document.getElementById('alerts');
+  const row = document.createElement('div');
+  row.className = 'alert-row ' + kind;
+  const time = new Date().toLocaleTimeString();
+  row.innerHTML = `<div class="t">${time}</div>${text}`;
+  box.prepend(row);
+  while(box.children.length>150) box.removeChild(box.lastChild);
+  beep();
+  if(notifyEnabled && Notification.permission==='granted'){
+    new Notification('BTC Zones', {body: text});
+  }
+}
+function beep(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const o = ctx.createOscillator(); const g = ctx.createGain();
+    o.type='sine'; o.frequency.value=880;
+    o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.35);
+    o.start(); o.stop(ctx.currentTime+0.4);
+  }catch(e){}
+}
+
+document.getElementById('notifyBtn').addEventListener('click', async ()=>{
+  if(!('Notification' in window)){ alert('Notifications not supported in this browser.'); return; }
+  const perm = await Notification.requestPermission();
+  notifyEnabled = perm==='granted';
+  document.getElementById('notifyBtn').textContent = notifyEnabled ? 'Notifications on' : 'Enable notifications';
+});
+
+// ============================================================================
+// CHART SETUP
+// ============================================================================
+function initChart(){
+  const canvas = document.getElementById('chart');
+  const wrap = document.getElementById('chartWrap');
+  function resize(){
+    const dpr = window.devicePixelRatio || 1;
+    const w = wrap.clientWidth, h = wrap.clientHeight || 420;
+    canvas.width = Math.floor(w*dpr);
+    canvas.height = Math.floor(h*dpr);
+    canvas.style.width = w+'px';
+    canvas.style.height = h+'px';
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    drawChart();
+  }
+  new ResizeObserver(resize).observe(wrap);
+  resize();
+}
+
+let overlay = { vwap:null, pdHigh:null, pdLow:null };
+let markerList = []; // {t, side:'above'|'below', color, label}
+
+function renderZones(){ drawChart(); }
+function renderRefLines(vwap, pdHigh, pdLow){
+  overlay = {vwap, pdHigh, pdLow};
+  drawChart();
+}
+function pushMarker(timeSec, position, color, shape, text){
+  markerList.push({t: timeSec*1000, side: position==='aboveBar'?'above':'below', color, label:text});
+  if(markerList.length>200) markerList.shift();
+  drawChart();
+}
+
+const PRICE_RIGHT_MARGIN = 64;
+function drawChart(){
+  const canvas = document.getElementById('chart');
+  if(!canvas || candles5m.length===0) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.width/dpr, H = canvas.height/dpr;
+  ctx.clearRect(0,0,W,H);
+
+  const plotW = W - PRICE_RIGHT_MARGIN;
+  const visibleCount = Math.min(candles5m.length, 130);
+  const visible = candles5m.slice(-visibleCount);
+
+  let lo = Infinity, hi = -Infinity;
+  visible.forEach(c=>{ lo=Math.min(lo,c.l); hi=Math.max(hi,c.h); });
+  [overlay.vwap, overlay.pdHigh, overlay.pdLow].forEach(v=>{ if(v!=null){ lo=Math.min(lo,v); hi=Math.max(hi,v); } });
+  supplyZones.concat(demandZones).forEach(z=>{ lo=Math.min(lo,z.bottom); hi=Math.max(hi,z.top); });
+  if(!isFinite(lo)||!isFinite(hi)||lo===hi){ lo=(lo||0)-1; hi=(hi||1)+1; }
+  const pad = (hi-lo)*0.08;
+  lo -= pad; hi += pad;
+
+  const priceToY = p => H - ((p-lo)/(hi-lo))*H;
+  const n = visible.length;
+  const slotW = plotW / n;
+  const bodyW = Math.max(1, slotW*0.6);
+  const idxToX = i => i*slotW + slotW/2;
+
+  // grid + price axis labels
+  ctx.strokeStyle = '#1a212c'; ctx.fillStyle = '#8592a6';
+  ctx.font = '10.5px monospace'; ctx.lineWidth = 1;
+  const ticks = 5;
+  for(let k=0;k<=ticks;k++){
+    const p = lo + (hi-lo)*k/ticks;
+    const y = priceToY(p);
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
+    ctx.fillText(p.toLocaleString(undefined,{maximumFractionDigits:0}), plotW+6, y+3);
+  }
+
+  // zones
+  function drawZoneBand(top, bottom, color, label){
+    const yTop = priceToY(top), yBot = priceToY(bottom);
+    ctx.fillStyle = color+'22';
+    ctx.fillRect(0, Math.min(yTop,yBot), plotW, Math.max(2,Math.abs(yBot-yTop)));
+    ctx.strokeStyle = color+'aa'; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(0,yTop); ctx.lineTo(plotW,yTop); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,yBot); ctx.lineTo(plotW,yBot); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font='9.5px monospace';
+    ctx.fillText(label, 4, Math.min(yTop,yBot)-3);
+  }
+  supplyZones.forEach(z=>drawZoneBand(z.top, z.bottom, '#ff5d5d', `supply ${z.score.toFixed(1)}`));
+  demandZones.forEach(z=>drawZoneBand(z.top, z.bottom, '#31d0aa', `demand ${z.score.toFixed(1)}`));
+
+  // reference lines
+  function refLine(price, color, label, dash){
+    if(price==null) return;
+    const y = priceToY(price);
+    ctx.strokeStyle = color; ctx.setLineDash(dash||[]); ctx.lineWidth = dash?1:2;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(plotW,y); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth=1;
+    ctx.fillStyle = color; ctx.font='9.5px monospace';
+    ctx.fillText(label, plotW-40, y-3);
+  }
+  refLine(overlay.pdHigh, '#8a4444', 'PDH', [2,3]);
+  refLine(overlay.pdLow, '#3d7a55', 'PDL', [2,3]);
+  refLine(overlay.vwap, '#4da3ff', 'VWAP');
+
+  // candles
+  visible.forEach((c,i)=>{
+    const x = idxToX(i);
+    const up = c.c>=c.o;
+    ctx.strokeStyle = ctx.fillStyle = up? '#31d0aa' : '#ff5d5d';
+    ctx.beginPath(); ctx.moveTo(x, priceToY(c.h)); ctx.lineTo(x, priceToY(c.l)); ctx.stroke();
+    const yO = priceToY(c.o), yC = priceToY(c.c);
+    const top = Math.min(yO,yC), height = Math.max(1, Math.abs(yC-yO));
+    ctx.fillRect(x-bodyW/2, top, bodyW, height);
+  });
+
+  // markers
+  const firstT = visible[0].t, lastT = visible[visible.length-1].t;
+  const stepMs = visible.length>1 ? (visible[1].t-visible[0].t) : 5*60*1000;
+  markerList.forEach(mk=>{
+    if(mk.t<firstT-stepMs || mk.t>lastT+stepMs) return;
+    const i = Math.round((mk.t-firstT)/stepMs);
+    const x = idxToX(Math.max(0,Math.min(n-1,i)));
+    const c = visible[Math.max(0,Math.min(n-1,i))];
+    const y = mk.side==='above' ? priceToY(c.h)-10 : priceToY(c.l)+10;
+    ctx.fillStyle = mk.color;
+    ctx.beginPath();
+    if(mk.side==='above'){ ctx.moveTo(x-5,y+6); ctx.lineTo(x+5,y+6); ctx.lineTo(x,y-4); }
+    else { ctx.moveTo(x-5,y-6); ctx.lineTo(x+5,y-6); ctx.lineTo(x,y+4); }
+    ctx.closePath(); ctx.fill();
+  });
+}
+
+// ============================================================================
+// CORE UPDATE CYCLE
+// ============================================================================
+async function refreshHigherTimeframes(){
+  try{
+    const [m15, h1, h4, d1] = await Promise.all([
+      fetchKlines('15m', 40), fetchKlines('60m', 40), fetchKlines('4h', 40), fetchKlines('1d', 15)
+    ]);
+    higher = {m15, h1, h4, d1};
+  }catch(e){ console.warn('higher TF fetch failed', e); }
+}
+
+function refLevelsAt(nowMs){
+  const c15 = lastClosed(higher.m15, nowMs), c1h = lastClosed(higher.h1, nowMs),
+        c4h = lastClosed(higher.h4, nowMs), cd = lastClosed(higher.d1, nowMs);
+  const s15h = sma(higher.m15.map(c=>c.h),3), s15l = sma(higher.m15.map(c=>c.l),3);
+  const s1hh = sma(higher.h1.map(c=>c.h),3), s1hl = sma(higher.h1.map(c=>c.l),3);
+  const s4hh = sma(higher.h4.map(c=>c.h),2), s4hl = sma(higher.h4.map(c=>c.l),2);
+  const idx15 = higher.m15.length-2, idx1h = higher.h1.length-2, idx4h = higher.h4.length-2;
+  return {
+    h15: c15?c15.h:null, l15: c15?c15.l:null,
+    h1h: c1h?c1h.h:null, l1h: c1h?c1h.l:null,
+    h4h: c4h?c4h.h:null, l4h: c4h?c4h.l:null,
+    hD: cd?cd.h:null, lD: cd?cd.l:null,
+    sm15h: idx15>=0?s15h[idx15]:null, sm15l: idx15>=0?s15l[idx15]:null,
+    sm1hh: idx1h>=0?s1hh[idx1h]:null, sm1hl: idx1h>=0?s1hl[idx1h]:null,
+    sm4hh: idx4h>=0?s4hh[idx4h]:null, sm4hl: idx4h>=0?s4hl[idx4h]:null,
+  };
+}
+
+function isNear(price, level, maxDist){ return level!=null && Math.abs(price-level)<=maxDist; }
+
+function highRefScore(price, maxDist, refs, sessions, recentHigh, prevHigh){
+  let score=0;
+  if(isNear(price, prevHigh, maxDist)) score+=CFG.chartLevelWeight;
+  if(isNear(price, recentHigh, maxDist)) score+=CFG.recentStructureWeight;
+  if(isNear(price, refs.h15, maxDist)) score+=CFG.weight15M;
+  if(isNear(price, refs.h1h, maxDist)) score+=CFG.weight1H;
+  if(isNear(price, refs.h4h, maxDist)) score+=CFG.weight4H;
+  if(isNear(price, refs.hD, maxDist)) score+=CFG.weightPreviousDay;
+  if(isNear(price, refs.sm15h, maxDist)) score+=CFG.smoothedBandWeight;
+  if(isNear(price, refs.sm1hh, maxDist)) score+=CFG.smoothedBandWeight;
+  if(isNear(price, refs.sm4hh, maxDist)) score+=CFG.smoothedBandWeight;
+  if(sessions.last.asia && isNear(price, sessions.last.asia.hi, maxDist)) score+=CFG.sessionWeightAsia;
+  if(sessions.last.london && isNear(price, sessions.last.london.hi, maxDist)) score+=CFG.sessionWeightLondon;
+  if(sessions.last.ny && isNear(price, sessions.last.ny.hi, maxDist)) score+=CFG.sessionWeightNY;
+  return score;
+}
+function lowRefScore(price, maxDist, refs, sessions, recentLow, prevLow){
+  let score=0;
+  if(isNear(price, prevLow, maxDist)) score+=CFG.chartLevelWeight;
+  if(isNear(price, recentLow, maxDist)) score+=CFG.recentStructureWeight;
+  if(isNear(price, refs.l15, maxDist)) score+=CFG.weight15M;
+  if(isNear(price, refs.l1h, maxDist)) score+=CFG.weight1H;
+  if(isNear(price, refs.l4h, maxDist)) score+=CFG.weight4H;
+  if(isNear(price, refs.lD, maxDist)) score+=CFG.weightPreviousDay;
+  if(isNear(price, refs.sm15l, maxDist)) score+=CFG.smoothedBandWeight;
+  if(isNear(price, refs.sm1hl, maxDist)) score+=CFG.smoothedBandWeight;
+  if(isNear(price, refs.sm4hl, maxDist)) score+=CFG.smoothedBandWeight;
+  if(sessions.last.asia && isNear(price, sessions.last.asia.lo, maxDist)) score+=CFG.sessionWeightAsia;
+  if(sessions.last.london && isNear(price, sessions.last.london.lo, maxDist)) score+=CFG.sessionWeightLondon;
+  if(sessions.last.ny && isNear(price, sessions.last.ny.lo, maxDist)) score+=CFG.sessionWeightNY;
+  return score;
+}
+
+function computeIndicatorContext(){
+  // Pure computation only — safe to call on every poll. No zone mutation happens here.
+  const n = candles5m.length;
+  if(n < CFG.pivotLeft+CFG.pivotRight+5) return null;
+  const closedCandles = candles5m.slice(0, n-1); // exclude forming candle
+  const closes = closedCandles.map(c=>c.c);
+  const emaF = ema(closes, CFG.emaFastLength), emaS = ema(closes, CFG.emaSlowLength);
+  const atrArr = atrRMA(closedCandles, CFG.atrLength);
+  const volAvg = sma(closedCandles.map(c=>c.v), CFG.volumeLength);
+  const vwapArr = dailyVwapSeries(closedCandles);
+  const {highs, lows} = pivots(closedCandles, CFG.pivotLeft, CFG.pivotRight);
+  const sessions = computeSessions(closedCandles);
+  const refs = refLevelsAt(closedCandles[closedCandles.length-1].t);
+
+  const m = closedCandles.length-1; // last confirmed bar index
+  const bullTrend = emaF[m]!=null && emaS[m]!=null && emaF[m]>emaS[m] && emaF[m]>=emaF[m-1];
+  const bearTrend = emaF[m]!=null && emaS[m]!=null && emaF[m]<emaS[m] && emaF[m]<=emaF[m-1];
+  const risingLows = closedCandles[m].l>closedCandles[m-1].l && closedCandles[m-1].l>closedCandles[m-2].l;
+  const fallingHighs = closedCandles[m].h<closedCandles[m-1].h && closedCandles[m-1].h<closedCandles[m-2].h;
+
+  function recentHighAt(i){
+    const lo = Math.max(0, i-CFG.recentStructureLookback);
+    let hh=-Infinity; for(let k=lo;k<i;k++) hh=Math.max(hh, closedCandles[k].h);
+    return hh===-Infinity?null:hh;
+  }
+  function recentLowAt(i){
+    const lo = Math.max(0, i-CFG.recentStructureLookback);
+    let ll=Infinity; for(let k=lo;k<i;k++) ll=Math.min(ll, closedCandles[k].l);
+    return ll===Infinity?null:ll;
+  }
+
+  return {emaF, emaS, atrArr, volAvg, vwapArr, refs, sessions, bullTrend, bearTrend, risingLows, fallingHighs,
+          recentHighAt, recentLowAt, m, closedCandles, highs, lows};
+}
+
+function createAndUpdateZones(ctx){
+  // Mutates supplyZones/demandZones. Call this exactly once per newly-closed 5m candle.
+  if(!ctx) return;
+  const {emaF, emaS, atrArr, volAvg, vwapArr, refs, sessions, recentHighAt, recentLowAt, m, closedCandles, highs, lows} = ctx;
+
+  // Only process the newest pivot(s) that fall exactly at the just-confirmed bar
+  const newHighPivot = highs.includes(m-CFG.pivotRight) ? m-CFG.pivotRight : null;
+  const newLowPivot = lows.includes(m-CFG.pivotRight) ? m-CFG.pivotRight : null;
+
+  if(newHighPivot!=null){
+    const i = newHighPivot;
+    const pAtr = atrArr[i], pVolAvg = volAvg[i-1];
+    const pVolRatio = pVolAvg? closedCandles[i].v/pVolAvg : 0;
+    const maxDist = pAtr!=null? pAtr*CFG.confluenceDistanceAtr : 0;
+    const refScore = pAtr!=null ? highRefScore(closedCandles[i].h, maxDist, refs, sessions, recentHighAt(i), closedCandles[i-1]?.h) : 0;
+    let lowestAfter = Infinity; for(let k=i;k<=Math.min(i+CFG.pivotRight, m);k++) lowestAfter=Math.min(lowestAfter, closedCandles[k].l);
+    const departureAtr = pAtr? Math.max(closedCandles[i].h-lowestAfter,0)/pAtr : 0;
+    const departureScore = Math.min(departureAtr,2.0)*CFG.departureWeight;
+    const pVwap = vwapArr[i];
+    const vwapExt = (pVwap && pAtr)? (closedCandles[i].h-pVwap)/pAtr : 0;
+    const iBull = emaF[i]!=null && emaS[i]!=null && emaF[i]>emaS[i] && emaF[i]>=emaF[i-1];
+    const iRisingLows = closedCandles[i].l>closedCandles[i-1].l && closedCandles[i-1].l>closedCandles[i-2].l;
+    const creationScore = pVolRatio + refScore + departureScore
+      + (vwapExt>=CFG.vwapExtensionAtr? CFG.vwapBonus:0)
+      - (iBull? CFG.trendPenalty:0) - (iRisingLows? CFG.compressionPenalty:0);
+    if(pAtr!=null && pVolRatio>=CFG.minimumPivotVolume && creationScore>=CFG.minimumCreationScore){
+      const halfW = pAtr*CFG.zoneWidthAtr;
+      supplyZones.push({top:closedCandles[i].h+halfW, bottom:closedCandles[i].h-halfW, score:creationScore,
+        touches:0, bornIdx:i, lastTouchIdx:null, wasInside:false});
+      while(supplyZones.length>CFG.maximumZonesPerSide) supplyZones.shift();
+    }
+  }
+  if(newLowPivot!=null){
+    const i = newLowPivot;
+    const pAtr = atrArr[i], pVolAvg = volAvg[i-1];
+    const pVolRatio = pVolAvg? closedCandles[i].v/pVolAvg : 0;
+    const maxDist = pAtr!=null? pAtr*CFG.confluenceDistanceAtr : 0;
+    const refScore = pAtr!=null ? lowRefScore(closedCandles[i].l, maxDist, refs, sessions, recentLowAt(i), closedCandles[i-1]?.l) : 0;
+    let highestAfter = -Infinity; for(let k=i;k<=Math.min(i+CFG.pivotRight, m);k++) highestAfter=Math.max(highestAfter, closedCandles[k].h);
+    const departureAtr = pAtr? Math.max(highestAfter-closedCandles[i].l,0)/pAtr : 0;
+    const departureScore = Math.min(departureAtr,2.0)*CFG.departureWeight;
+    const pVwap = vwapArr[i];
+    const vwapExt = (pVwap && pAtr)? (pVwap-closedCandles[i].l)/pAtr : 0;
+    const iBear = emaF[i]!=null && emaS[i]!=null && emaF[i]<emaS[i] && emaF[i]<=emaF[i-1];
+    const iFallingHighs = closedCandles[i].h<closedCandles[i-1].h && closedCandles[i-1].h<closedCandles[i-2].h;
+    const creationScore = pVolRatio + refScore + departureScore
+      + (vwapExt>=CFG.vwapExtensionAtr? CFG.vwapBonus:0)
+      - (iBear? CFG.trendPenalty:0) - (iFallingHighs? CFG.compressionPenalty:0);
+    if(pAtr!=null && pVolRatio>=CFG.minimumPivotVolume && creationScore>=CFG.minimumCreationScore){
+      const halfW = pAtr*CFG.zoneWidthAtr;
+      demandZones.push({top:closedCandles[i].l+halfW, bottom:closedCandles[i].l-halfW, score:creationScore,
+        touches:0, bornIdx:i, lastTouchIdx:null, wasInside:false});
+      while(demandZones.length>CFG.maximumZonesPerSide) demandZones.shift();
+    }
+  }
+
+  // update touches / expiry / breaks on the just-closed bar
+  const bar = closedCandles[m];
+  supplyZones = supplyZones.filter(z=>{
+    const touched = bar.h>=z.bottom && bar.l<=z.top;
+    if(touched && !z.wasInside && m>z.bornIdx){ z.touches++; z.lastTouchIdx=m; }
+    z.wasInside = touched;
+    const broken = bar.c>z.top;
+    const expired = (m-z.bornIdx)>CFG.maximumZoneAge;
+    const overTested = z.touches>CFG.maximumTouches;
+    return !(broken||expired||overTested);
+  });
+  demandZones = demandZones.filter(z=>{
+    const touched = bar.l<=z.top && bar.h>=z.bottom;
+    if(touched && !z.wasInside && m>z.bornIdx){ z.touches++; z.lastTouchIdx=m; }
+    z.wasInside = touched;
+    const broken = bar.c<z.bottom;
+    const expired = (m-z.bornIdx)>CFG.maximumZoneAge;
+    const overTested = z.touches>CFG.maximumTouches;
+    return !(broken||expired||overTested);
+  });
+}
+
+function computeLiveSignals(ctx){
+  if(!ctx) return null;
+  const {emaF, emaS, atrArr, volAvg, vwapArr, refs, sessions, bullTrend, bearTrend, risingLows, fallingHighs,
+         recentHighAt, recentLowAt, m, closedCandles} = ctx;
+  const forming = candles5m[candles5m.length-1];
+  const atr = atrArr[m];
+  const avgVol = volAvg[m];
+  const rawVolRatio = avgVol? forming.v/avgVol : 0;
+  const barDurMs = 5*60*1000;
+  const elapsed = Date.now()-forming.t;
+  const progress = Math.min(Math.max(elapsed/barDurMs, 0.20), 1.0);
+  const projected = Math.min(rawVolRatio/progress, 4.0);
+  const fastVolRatio = progress<1 ? projected : rawVolRatio;
+
+  const recentHigh = recentHighAt(m+1), recentLow = recentLowAt(m+1);
+  const prevHigh = closedCandles[m].h, prevLow = closedCandles[m].l;
+  const liveMaxDist = atr!=null? atr*CFG.confluenceDistanceAtr : 0;
+  const touchDist = atr!=null? atr*CFG.referenceTouchDistanceAtr : 0;
+
+  const liveHighScore = Math.max(
+    highRefScore(forming.h, liveMaxDist, refs, sessions, recentHigh, prevHigh),
+    highRefScore(forming.c, liveMaxDist, refs, sessions, recentHigh, prevHigh));
+  const liveLowScore = Math.max(
+    lowRefScore(forming.l, liveMaxDist, refs, sessions, recentLow, prevLow),
+    lowRefScore(forming.c, liveMaxDist, refs, sessions, recentLow, prevLow));
+  const liveHighTouch = Math.max(
+    highRefScore(forming.h, touchDist, refs, sessions, recentHigh, prevHigh),
+    highRefScore(forming.c, touchDist, refs, sessions, recentHigh, prevHigh)) > 0;
+  const liveLowTouch = Math.max(
+    lowRefScore(forming.l, touchDist, refs, sessions, recentLow, prevLow),
+    lowRefScore(forming.c, touchDist, refs, sessions, recentLow, prevLow)) > 0;
+
+  // zone interaction on the forming bar (does not mutate persisted touch counts)
+  let supplyZoneTouched=false, bestSupplyZoneScore=null, supplyZoneSweep=false, supplyAbsorption=false;
+  const closePos = (forming.c-forming.l)/Math.max(forming.h-forming.l, 1e-9);
+  supplyZones.forEach(z=>{
+    const touched = forming.h>=z.bottom && forming.l<=z.top;
+    if(touched){
+      supplyZoneTouched = true;
+      const adj = z.score - Math.max(z.touches-1,0)*CFG.touchPenalty
+        - (bullTrend?CFG.trendPenalty:0) - (risingLows?CFG.compressionPenalty:0);
+      const swept = forming.h>z.top && forming.c<z.top;
+      const absorption = fastVolRatio>=CFG.fastRetestVolumePace && closePos>=0.70 && risingLows && !swept;
+      supplyZoneSweep = supplyZoneSweep || swept;
+      supplyAbsorption = supplyAbsorption || absorption;
+      if(bestSupplyZoneScore==null || adj>bestSupplyZoneScore) bestSupplyZoneScore = adj;
+    }
+  });
+  let demandZoneTouched=false, bestDemandZoneScore=null, demandZoneSweep=false, demandAbsorption=false;
+  demandZones.forEach(z=>{
+    const touched = forming.l<=z.top && forming.h>=z.bottom;
+    if(touched){
+      demandZoneTouched = true;
+      const adj = z.score - Math.max(z.touches-1,0)*CFG.touchPenalty
+        - (bearTrend?CFG.trendPenalty:0) - (fallingHighs?CFG.compressionPenalty:0);
+      const swept = forming.l<z.bottom && forming.c>z.bottom;
+      const absorption = fastVolRatio>=CFG.fastRetestVolumePace && closePos<=0.30 && fallingHighs && !swept;
+      demandZoneSweep = demandZoneSweep || swept;
+      demandAbsorption = demandAbsorption || absorption;
+      if(bestDemandZoneScore==null || adj>bestDemandZoneScore) bestDemandZoneScore = adj;
+    }
+  });
+
+  function sweptHigh(level){ return level!=null && forming.h>level && forming.c<level; }
+  function sweptLow(level){ return level!=null && forming.l<level && forming.c>level; }
+  const refSupplySweep = sweptHigh(prevHigh)||sweptHigh(recentHigh)||sweptHigh(refs.h15)||sweptHigh(refs.h1h)||sweptHigh(refs.h4h)||sweptHigh(refs.hD)
+    || (sessions.last.asia&&sweptHigh(sessions.last.asia.hi)) || (sessions.last.london&&sweptHigh(sessions.last.london.hi)) || (sessions.last.ny&&sweptHigh(sessions.last.ny.hi));
+  const refDemandSweep = sweptLow(prevLow)||sweptLow(recentLow)||sweptLow(refs.l15)||sweptLow(refs.l1h)||sweptLow(refs.l4h)||sweptLow(refs.lD)
+    || (sessions.last.asia&&sweptLow(sessions.last.asia.lo)) || (sessions.last.london&&sweptLow(sessions.last.london.lo)) || (sessions.last.ny&&sweptLow(sessions.last.ny.lo));
+
+  const vwapNow = vwapArr[m]; // approx — daily vwap through last closed bar
+  const refSupplyAdj = rawVolRatio + liveHighScore
+    + ((forming.c - (vwapNow||forming.c)) >= (atr||0)*CFG.vwapExtensionAtr ? CFG.vwapBonus:0)
+    - (bullTrend?CFG.trendPenalty:0) - (risingLows?CFG.compressionPenalty:0);
+  const refDemandAdj = rawVolRatio + liveLowScore
+    + (((vwapNow||forming.c) - forming.c) >= (atr||0)*CFG.vwapExtensionAtr ? CFG.vwapBonus:0)
+    - (bearTrend?CFG.trendPenalty:0) - (fallingHighs?CFG.compressionPenalty:0);
+
+  const bestSupplyScore = bestSupplyZoneScore==null? refSupplyAdj : Math.max(bestSupplyZoneScore, refSupplyAdj);
+  const bestDemandScore = bestDemandZoneScore==null? refDemandAdj : Math.max(bestDemandZoneScore, refDemandAdj);
+  const anySupplySweep = supplyZoneSweep || refSupplySweep;
+  const anyDemandSweep = demandZoneSweep || refDemandSweep;
+  const supplyInteraction = supplyZoneTouched || liveHighTouch || refSupplySweep;
+  const demandInteraction = demandZoneTouched || liveLowTouch || refDemandSweep;
+
+  const nearSupplyRefs = [prevHigh, recentHigh, refs.h15, refs.h1h, refs.h4h, refs.hD,
+    sessions.last.asia?.hi, sessions.last.london?.hi, sessions.last.ny?.hi];
+  const nearDemandRefs = [prevLow, recentLow, refs.l15, refs.l1h, refs.l4h, refs.lD,
+    sessions.last.asia?.lo, sessions.last.london?.lo, sessions.last.ny?.lo];
+  const nearestSupplyDist = nearestSupplyDistance(forming.c, distanceToResistance(forming.c, nearSupplyRefs));
+  const nearestDemandDist = nearestDemandDistance(forming.c, distanceToSupport(forming.c, nearDemandRefs));
+  const nearSupply = atr!=null && nearestSupplyDist <= atr*CFG.approachDistanceAtr;
+  const nearDemand = atr!=null && nearestDemandDist <= atr*CFG.approachDistanceAtr;
+
+  const candleRange = Math.max(forming.h-forming.l, 0.01);
+  const upperWick = forming.h-Math.max(forming.o,forming.c);
+  const lowerWick = Math.min(forming.o,forming.c)-forming.l;
+  const reversalFromHigh = atr? (forming.h-forming.c)/atr : 0;
+  const reversalFromLow = atr? (forming.c-forming.l)/atr : 0;
+  const fastBearish = reversalFromHigh>=CFG.fastReactionDistanceAtr && ((upperWick/candleRange)>=CFG.fastWickRatio || closePos<=0.45);
+  const fastBullish = reversalFromLow>=CFG.fastReactionDistanceAtr && ((lowerWick/candleRange)>=CFG.fastWickRatio || closePos>=0.55);
+
+  const fastShort = supplyInteraction && !supplyAbsorption && fastVolRatio>=CFG.fastRetestVolumePace
+    && bestSupplyScore>=CFG.minimumSignalScore && (anySupplySweep || fastBearish);
+  const fastLong = demandInteraction && !demandAbsorption && fastVolRatio>=CFG.fastRetestVolumePace
+    && bestDemandScore>=CFG.minimumSignalScore && (anyDemandSweep || fastBullish);
+  const supplyApproach = nearSupply;
+  const demandApproach = nearDemand;
+
+  return {atr, rawVolRatio, fastVolRatio, progress, bullTrend, bearTrend,
+    supplyCount:supplyZones.length, demandCount:demandZones.length,
+    bestSupplyScore, bestDemandScore, supplyAbsorption, demandAbsorption,
+    fastShort, fastLong, supplyApproach, demandApproach, nearSupply, nearDemand,
+    forming, vwapNow, pdHigh: refs.hD, pdLow: refs.lD};
+}
+
+let prevFlags = {approachSup:false, approachDem:false, fastShort:false, fastLong:false, confirmedShort:false, confirmedLong:false};
+
+function checkAndFireAlerts(live, confirmedSignals){
+  const t = live.forming.t;
+  if(live.supplyApproach && !prevFlags.approachSup){
+    logAlert('approach', `⚠ Approaching resistance · $${live.forming.c.toFixed(0)}`);
+  }
+  if(live.demandApproach && !prevFlags.approachDem){
+    logAlert('approach', `⚠ Approaching support · $${live.forming.c.toFixed(0)}`);
+  }
+  if(live.fastShort && !prevFlags.fastShort){
+    logAlert('short', `▼ FAST SHORT reaction · score ${live.bestSupplyScore.toFixed(2)} · vol ${live.fastVolRatio.toFixed(2)}x · $${live.forming.c.toFixed(0)}`);
+    pushMarker(Math.floor(t/1000), 'aboveBar', '#ff8a3d', 'arrowDown', 'FAST');
+  }
+  if(live.fastLong && !prevFlags.fastLong){
+    logAlert('long', `▲ FAST LONG reaction · score ${live.bestDemandScore.toFixed(2)} · vol ${live.fastVolRatio.toFixed(2)}x · $${live.forming.c.toFixed(0)}`);
+    pushMarker(Math.floor(t/1000), 'belowBar', '#ff8a3d', 'arrowUp', 'FAST');
+  }
+  if(confirmedSignals){
+    if(confirmedSignals.short){
+      logAlert('short', `▼▼ CONFIRMED SHORT (candle close) · score ${confirmedSignals.shortScore.toFixed(2)}`);
+      pushMarker(Math.floor(confirmedSignals.time/1000), 'aboveBar', '#ff5d5d', 'arrowDown', 'SHORT');
+    }
+    if(confirmedSignals.long){
+      logAlert('long', `▲▲ CONFIRMED LONG (candle close) · score ${confirmedSignals.longScore.toFixed(2)}`);
+      pushMarker(Math.floor(confirmedSignals.time/1000), 'belowBar', '#31d0aa', 'arrowUp', 'LONG');
+    }
+  }
+  prevFlags = {approachSup:live.supplyApproach, approachDem:live.demandApproach,
+    fastShort:live.fastShort, fastLong:live.fastLong,
+    confirmedShort: confirmedSignals?.short||false, confirmedLong: confirmedSignals?.long||false};
+}
+
+function checkConfirmedSignals(ctx){
+  // Approximate the "confirmed" (candle-close) signal using the same live-style
+  // computation but evaluated strictly on the just-closed bar (no partial-candle volume pacing).
+  if(!ctx) return null;
+  const { m, closedCandles } = ctx;
+  if(m<0 || !closedCandles[m]) return null;
+  const bar = closedCandles[m];
+  const savedForming = candles5m[candles5m.length-1];
+  // Temporarily treat the closed bar as "forming" with progress=1 to reuse computeLiveSignals math
+  const fake = [...candles5m]; fake[fake.length-1] = {...bar, t: bar.t};
+  const backup = candles5m; candles5m = fake;
+  const liveLike = computeLiveSignals(ctx);
+  candles5m = backup;
+  if(!liveLike) return null;
+  const short = liveLike.fastShort && liveLike.rawVolRatio>=CFG.confirmedRetestVolume;
+  const long = liveLike.fastLong && liveLike.rawVolRatio>=CFG.confirmedRetestVolume;
+  return {short, long, shortScore: liveLike.bestSupplyScore, longScore: liveLike.bestDemandScore, time: bar.t};
+}
+
+function renderDashboard(live){
+  const rows = [
+    ['Profile','5M (Auto)'],
+    ['Symbol / venue', CFG.symbol+' · MEXC'],
+    ['Pivot delay', CFG.pivotRight+' bar'],
+    ['Raw volume', live.rawVolRatio.toFixed(2)+'x'],
+    ['Volume pace', live.fastVolRatio.toFixed(2)+'x'],
+    ['Bar progress', Math.round(live.progress*100)+'%'],
+    ['Trend', live.bullTrend?'Bullish':live.bearTrend?'Bearish':'Mixed'],
+    ['Supply zones', live.supplyCount],
+    ['Supply score', live.bestSupplyScore.toFixed(2)],
+    ['Supply state', live.supplyAbsorption?'<span class="state-pressure">PRESSURE</span>':live.fastShort?'<span class="state-fast">FAST REJECT</span>':live.nearSupply?'<span class="state-approach">APPROACH</span>':'<span class="state-clear">CLEAR</span>'],
+    ['Demand zones', live.demandCount],
+    ['Demand score', live.bestDemandScore.toFixed(2)],
+    ['Demand state', live.demandAbsorption?'<span class="state-pressure">PRESSURE</span>':live.fastLong?'<span class="state-fast">FAST REJECT</span>':live.nearDemand?'<span class="state-approach">APPROACH</span>':'<span class="state-clear">CLEAR</span>'],
+  ];
+  const tbl = document.getElementById('dashTable');
+  tbl.innerHTML = rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+}
+
+// ============================================================================
+// MAIN LOOP
+// ============================================================================
+let bootstrapped = false;
+async function tick(){
+  try{
+    if(!bootstrapped){
+      candles5m = await fetchKlines('5m', 400);
+      await refreshHigherTimeframes();
+      bootstrapped = true;
+      document.getElementById('status').textContent = 'live';
+      document.getElementById('status').className = 'live';
+    } else {
+      const recent = await fetchKlines('5m', 5);
+      recent.forEach(rc=>{
+        const idx = candles5m.findIndex(c=>c.t===rc.t);
+        if(idx>=0) candles5m[idx]=rc; else candles5m.push(rc);
+      });
+      candles5m = candles5m.slice(-400);
+    }
+    drawChart();
+
+    const now = Date.now();
+    const lastClosedBar = lastClosed(candles5m, now);
+    const ctx = computeIndicatorContext();
+    let confirmedSignals = null;
+    if(ctx && lastClosedBar && lastClosedBar.ct !== lastClosedTime5m){
+      lastClosedTime5m = lastClosedBar.ct;
+      createAndUpdateZones(ctx);
+      confirmedSignals = checkConfirmedSignals(ctx);
+      renderZones();
+    }
+    const live = computeLiveSignals(ctx);
+    if(live){
+      renderDashboard(live);
+      renderRefLines(live.vwapNow, live.pdHigh, live.pdLow);
+      checkAndFireAlerts(live, confirmedSignals);
+      const price = live.forming.c;
+      const priceEl = document.getElementById('topPrice');
+      priceEl.textContent = '$'+price.toLocaleString(undefined,{maximumFractionDigits:1});
+    }
+  }catch(e){
+    console.error(e);
+    document.getElementById('status').textContent = 'error: '+e.message;
+    document.getElementById('status').className = 'err';
+  }
+}
+
+initChart();
+tick();
+setInterval(tick, 8000);
+setInterval(refreshHigherTimeframes, 90000);
+</script>
+</body>
+</html>
