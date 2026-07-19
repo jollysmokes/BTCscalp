@@ -64,7 +64,7 @@
 
 <header>
   <div>
-    <h1>BTC Fast Reaction Zones <span>· MEXC · 5m scalping alerts</span></h1>
+    <h1>BTC Fast Reaction Zones <span id="headerSub">· 5m scalping alerts</span></h1>
   </div>
   <div style="display:flex;align-items:center;gap:16px;">
     <div class="top-price" id="topPrice">—</div>
@@ -173,18 +173,44 @@ document.getElementById('settingsToggle').addEventListener('click', ()=>{
 });
 
 // ============================================================================
-// DATA FETCHING — MEXC public spot market API (no key required)
+// DATA FETCHING — tries MEXC's public API first; if the browser can't reach it
+// (e.g. MEXC not allowing cross-origin requests from this page), falls back to
+// Binance's public API, which is well known to allow direct browser calls.
+// BTC/USDT prices are essentially identical across major exchanges.
 // ============================================================================
-const BASE = 'https://api.mexc.com/api/v3/klines';
+const SOURCES = [
+  { name:'MEXC', base:'https://api.mexc.com/api/v3/klines',
+    mapInterval: i=>i }, // native: 5m, 15m, 60m, 4h, 1d
+  { name:'Binance', base:'https://api.binance.com/api/v3/klines',
+    mapInterval: i=>({'5m':'5m','15m':'15m','60m':'1h','4h':'4h','1d':'1d'}[i]) },
+];
+let activeSourceIndex = 0;
+CFG.activeSource = SOURCES[0].name;
 
 async function fetchKlines(interval, limit){
-  const url = `${BASE}?symbol=${CFG.symbol}&interval=${interval}&limit=${limit}`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`MEXC ${interval} fetch failed: ${res.status}`);
-  const raw = await res.json();
-  return raw.map(r=>({
-    t: r[0], o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5], ct: r[6]
-  }));
+  let lastErr = null;
+  for(let attempt=activeSourceIndex; attempt<SOURCES.length; attempt++){
+    const src = SOURCES[attempt];
+    try{
+      const mapped = src.mapInterval(interval);
+      const url = `${src.base}?symbol=${CFG.symbol}&interval=${mapped}&limit=${limit}`;
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`${src.name} ${interval} fetch failed: ${res.status}`);
+      const raw = await res.json();
+      if(activeSourceIndex !== attempt){
+        activeSourceIndex = attempt;
+        CFG.activeSource = src.name;
+        console.warn(`Switched data source to ${src.name}`);
+      }
+      return raw.map(r=>({
+        t: r[0], o: +r[1], h: +r[2], l: +r[3], c: +r[4], v: +r[5], ct: r[6]
+      }));
+    }catch(e){
+      lastErr = e;
+      console.warn(`${src.name} fetch failed, trying next source`, e);
+    }
+  }
+  throw lastErr;
 }
 
 // ============================================================================
@@ -852,7 +878,7 @@ function checkConfirmedSignals(ctx){
 function renderDashboard(live){
   const rows = [
     ['Profile','5M (Auto)'],
-    ['Symbol / venue', CFG.symbol+' · MEXC'],
+    ['Symbol / venue', CFG.symbol+' · '+CFG.activeSource],
     ['Pivot delay', CFG.pivotRight+' bar'],
     ['Raw volume', live.rawVolRatio.toFixed(2)+'x'],
     ['Volume pace', live.fastVolRatio.toFixed(2)+'x'],
@@ -881,6 +907,7 @@ async function tick(){
       bootstrapped = true;
       document.getElementById('status').textContent = 'live';
       document.getElementById('status').className = 'live';
+      document.getElementById('headerSub').textContent = `· ${CFG.activeSource} · 5m scalping alerts`;
     } else {
       const recent = await fetchKlines('5m', 5);
       recent.forEach(rc=>{
