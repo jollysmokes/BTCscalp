@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BTC/USDT — Analyst Terminal</title>
+<style>
+  :root{
+    --bg:#0b0c0e;
+    --panel:#141619;
+    --panel2:#1a1d21;
+    --hair:#2a2d31;
+    --text:#e9e6df;
+    --dim:#8b8d91;
+    --dim2:#5c5e62;
+    --brass:#b08d57;
+    --brass-bright:#d4af7a;
+    --bull:#4f9d6e;
+    --bull-dim:#3a7550;
+    --bear:#b4544a;
+    --bear-dim:#8f423a;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,"SF Pro Text","Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  .mono{font-family:ui-monospace,"SF Mono","Menlo","Courier New",monospace;}
+  #app{max-width:520px;margin:0 auto;padding:0 0 40px 0;min-height:100vh;}
+
+  /* header */
+  header{padding:18px 16px 14px 16px;border-bottom:1px solid var(--hair);
+    position:sticky;top:0;background:rgba(11,12,14,0.92);backdrop-filter:blur(10px);z-index:20;}
+  .eyebrow{display:flex;align-items:center;justify-content:space-between;font-size:11px;
+    letter-spacing:0.12em;color:var(--dim);text-transform:uppercase;margin-bottom:10px;}
+  .live-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bull);
+    margin-right:6px;box-shadow:0 0 6px var(--bull);animation:pulse 2s infinite;}
+  .live-dot.stale{background:var(--bear);box-shadow:0 0 6px var(--bear);animation:none;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.35;}}
+  .price-row{display:flex;align-items:baseline;gap:12px;}
+  .price{font-size:34px;font-weight:600;letter-spacing:-0.02em;}
+  .chg{font-size:15px;font-weight:600;}
+  .chg.up{color:var(--bull);} .chg.down{color:var(--bear);}
+  .sub{font-size:12px;color:var(--dim2);margin-top:4px;}
+
+  section{padding:16px;border-bottom:1px solid var(--hair);}
+  .label{font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--brass);
+    margin-bottom:12px;font-weight:600;}
+
+  /* chart */
+  #chartWrap{position:relative;background:var(--panel);border-radius:10px;border:1px solid var(--hair);
+    padding:10px 8px 8px 8px;}
+  canvas{display:block;width:100%;}
+  .chart-legend{display:flex;gap:14px;font-size:10px;color:var(--dim);margin-top:8px;flex-wrap:wrap;}
+  .chart-legend span{display:flex;align-items:center;gap:5px;}
+  .swatch{width:9px;height:9px;border-radius:2px;display:inline-block;}
+
+  /* bias */
+  .bias-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .bias-verdict{font-size:20px;font-weight:700;}
+  .bias-verdict.bull{color:var(--bull);} .bias-verdict.bear{color:var(--bear);} .bias-verdict.neu{color:var(--brass);}
+  .bias-pct{font-size:13px;color:var(--dim);}
+  .bar-track{height:6px;border-radius:3px;background:var(--panel2);overflow:hidden;position:relative;}
+  .bar-fill{height:100%;border-radius:3px;transition:width .4s ease;}
+  .bias-note{font-size:12px;color:var(--dim);margin-top:10px;line-height:1.5;}
+
+  /* levels */
+  .level-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;
+    border-bottom:1px solid var(--hair);font-size:13px;}
+  .level-row:last-child{border-bottom:none;}
+  .level-tag{font-size:11px;font-weight:700;letter-spacing:0.05em;width:30px;}
+  .level-tag.res{color:var(--bear);} .level-tag.sup{color:var(--bull);}
+  .level-price{font-weight:600;}
+  .level-strength{font-size:11px;color:var(--dim2);}
+  .current-mark{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:11px;
+    color:var(--brass-bright);letter-spacing:0.08em;}
+  .current-mark .line{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--brass),transparent);}
+
+  /* setup */
+  .setup-card{background:var(--panel);border:1px solid var(--hair);border-radius:10px;padding:14px;}
+  .setup-dir{font-size:16px;font-weight:700;letter-spacing:0.03em;margin-bottom:2px;}
+  .setup-dir.long{color:var(--bull);} .setup-dir.short{color:var(--bear);} .setup-dir.wait{color:var(--dim);}
+  .setup-sub{font-size:11px;color:var(--dim2);margin-bottom:12px;}
+  .setup-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .setup-item{background:var(--panel2);border-radius:7px;padding:8px 6px;text-align:center;}
+  .setup-item .k{font-size:9px;color:var(--dim2);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:4px;}
+  .setup-item .v{font-size:13px;font-weight:600;}
+  .rr-row{margin-top:10px;font-size:12px;color:var(--dim);display:flex;justify-content:space-between;}
+  .rr-row b{color:var(--brass-bright);}
+
+  /* patterns */
+  .pattern-row{display:flex;justify-content:space-between;padding:7px 0;font-size:12.5px;
+    border-bottom:1px solid var(--hair);}
+  .pattern-row:last-child{border-bottom:none;}
+  .pattern-time{color:var(--dim2);}
+  .pattern-tag{padding:1px 7px;border-radius:4px;font-size:10.5px;font-weight:600;}
+  .pattern-tag.bull{background:rgba(79,157,110,0.15);color:var(--bull);}
+  .pattern-tag.bear{background:rgba(180,84,74,0.15);color:var(--bear);}
+  .pattern-tag.neu{background:rgba(176,141,87,0.15);color:var(--brass);}
+  .empty{color:var(--dim2);font-size:12px;font-style:italic;padding:6px 0;}
+
+  footer{padding:16px 16px 30px 16px;font-size:10.5px;line-height:1.6;color:var(--dim2);}
+  footer b{color:var(--dim);}
+
+  .refresh-btn{background:none;border:1px solid var(--hair);color:var(--dim);border-radius:7px;
+    font-size:11px;padding:5px 10px;font-family:inherit;}
+  .refresh-btn:active{background:var(--panel2);}
+  .top-actions{display:flex;gap:8px;align-items:center;}
+
+  .loading{display:flex;align-items:center;justify-content:center;height:220px;color:var(--dim2);font-size:12px;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <div class="eyebrow">
+      <span><span class="live-dot" id="liveDot"></span><span id="statusText">connecting</span></span>
+      <div class="top-actions">
+        <span id="lastUpdate" class="mono"></span>
+        <button class="refresh-btn" id="refreshBtn">refresh</button>
+      </div>
+    </div>
+    <div class="price-row">
+      <span class="price mono" id="priceDisplay">—</span>
+      <span class="chg mono" id="chgDisplay"></span>
+    </div>
+    <div class="sub">BTC/USDT · 5m execution · MEXC / Binance feed</div>
+  </header>
+
+  <section>
+    <div class="label">Chart &amp; 12h Probability Cone</div>
+    <div id="chartWrap">
+      <div class="loading" id="chartLoading">loading candles…</div>
+      <canvas id="chartCanvas" width="600" height="360" style="display:none;"></canvas>
+    </div>
+    <div class="chart-legend">
+      <span><span class="swatch" style="background:var(--bull-dim)"></span>support zone</span>
+      <span><span class="swatch" style="background:var(--bear-dim)"></span>resistance zone</span>
+      <span><span class="swatch" style="background:var(--brass)"></span>projected midline</span>
+      <span><span class="swatch" style="background:rgba(176,141,87,0.25)"></span>68% / 90% bands</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">Probabilistic Bias</div>
+    <div class="bias-head">
+      <div>
+        <div class="bias-verdict" id="biasVerdict">—</div>
+      </div>
+      <div class="bias-pct mono" id="biasPct"></div>
+    </div>
+    <div class="bar-track"><div class="bar-fill" id="biasBar"></div></div>
+    <div class="bias-note" id="biasNote">Waiting on data to compute a confluence read across trend, momentum, and structure.</div>
+  </section>
+
+  <section>
+    <div class="label">Key Levels (1h structure)</div>
+    <div id="levelsList"><div class="empty">calculating pivots…</div></div>
+  </section>
+
+  <section>
+    <div class="label">5m Trade Setup</div>
+    <div class="setup-card">
+      <div class="setup-dir wait" id="setupDir">WAITING</div>
+      <div class="setup-sub" id="setupSub">No qualifying setup yet</div>
+      <div class="setup-grid">
+        <div class="setup-item"><div class="k">Entry</div><div class="v mono" id="setupEntry">—</div></div>
+        <div class="setup-item"><div class="k">Stop</div><div class="v mono" id="setupStop">—</div></div>
+        <div class="setup-item"><div class="k">Target</div><div class="v mono" id="setupTarget">—</div></div>
+      </div>
+      <div class="rr-row"><span>Risk:Reward</span><b id="setupRR">—</b></div>
+      <div class="rr-row"><span>Invalidation</span><span id="setupInval">—</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="label">Pattern Feed (5m)</div>
+    <div id="patternList"><div class="empty">scanning recent candles…</div></div>
+  </section>
+
+  <footer>
+    <b>Read this as probability, not prophecy.</b> Levels, bias, and the projection cone are derived
+    from pivot structure, ATR-scaled volatility, and candle-pattern confluence on public market data —
+    a statistical read, not a guarantee. The cone widens over the 12h horizon because uncertainty compounds;
+    treat the midline as a drift estimate, not a target. Nothing here is financial advice. Size and manage
+    risk accordingly.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  const SYMBOL = "BTCUSDT";
+  const EXEC_TF = "5m";
+  const STRUCT_TF = "1h";
+  const EXEC_LIMIT = 300;
+  const STRUCT_LIMIT = 240;
+  const REFRESH_MS = 45000;
+
+  let state = { execCandles: [], structCandles: [], lastFetch: 0, source: null };
+
+  // ---------- DATA FETCH ----------
+  async function fetchBinance(interval, limit){
+    const url = `https://api.binance.com/api/v3/klines?symbol=${SYMBOL}&interval=${interval}&limit=${limit}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error("binance http " + res.status);
+    const raw = await res.json();
+    return raw.map(k => ({t:k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
+  }
+
+  async function fetchMexc(interval, limit){
+    const url = `https://api.mexc.com/api/v3/klines?symbol=${SYMBOL}&interval=${interval}&limit=${limit}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error("mexc http " + res.status);
+    const raw = await res.json();
+    return raw.map(k => ({t:k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
+  }
+
+  async function fetchCandles(interval, limit){
+    try{
+      const d = await fetchBinance(interval, limit);
+      state.source = "Binance";
+      return d;
+    }catch(e){
+      const d = await fetchMexc(interval, limit);
+      state.source = "MEXC";
+      return d;
+    }
+  }
+
+  // ---------- INDICATORS ----------
+  function ema(values, period){
+    const k = 2/(period+1);
+    let out = [values[0]];
+    for(let i=1;i<values.length;i++){
+      out.push(values[i]*k + out[i-1]*(1-k));
+    }
+    return out;
+  }
+
+  function rsi(values, period=14){
+    let gains=0, losses=0;
+    const out = new Array(values.length).fill(50);
+    for(let i=1;i<=period;i++){
+      const d = values[i]-values[i-1];
+      if(d>=0) gains+=d; else losses-=d;
+    }
+    let avgGain = gains/period, avgLoss = losses/period;
+    out[period] = avgLoss===0 ? 100 : 100 - (100/(1+avgGain/avgLoss));
+    for(let i=period+1;i<values.length;i++){
+      const d = values[i]-values[i-1];
+      const g = d>0?d:0, l = d<0?-d:0;
+      avgGain = (avgGain*(period-1)+g)/period;
+      avgLoss = (avgLoss*(period-1)+l)/period;
+      out[i] = avgLoss===0 ? 100 : 100 - (100/(1+avgGain/avgLoss));
+    }
+    return out;
+  }
+
+  function atr(candles, period=14){
+    const trs = [];
+    for(let i=0;i<candles.length;i++){
+      if(i===0){ trs.push(candles[i].h - candles[i].l); continue; }
+      const c = candles[i], p = candles[i-1];
+      trs.push(Math.max(c.h-c.l, Math.abs(c.h-p.c), Math.abs(c.l-p.c)));
+    }
+    const out = new Array(trs.length).fill(trs[0]);
+    for(let i=1;i<trs.length;i++){
+      out[i] = i<period ? (trs.slice(0,i+1).reduce((a,b)=>a+b,0)/(i+1)) : (out[i-1]*(period-1)+trs[i])/period;
+    }
+    return out;
+  }
+
+  // ---------- PIVOTS / S-R ZONES ----------
+  function findPivots(candles, lookback=4){
+    const highs=[], lows=[];
+    for(let i=lookback;i<candles.length-lookback;i++){
+      const win = candles.slice(i-lookback, i+lookback+1);
+      const h = candles[i].h, l = candles[i].l;
+      if(win.every(c => c.h <= h)) highs.push({price:h, t:candles[i].t});
+      if(win.every(c => c.l >= l)) lows.push({price:l, t:candles[i].t});
+    }
+    return {highs, lows};
+  }
+
+  function clusterZones(points, tolPct){
+    const sorted = [...points].sort((a,b)=>a.price-b.price);
+    const zones = [];
+    for(const p of sorted){
+      let placed = false;
+      for(const z of zones){
+        if(Math.abs(p.price - z.mid)/z.mid <= tolPct){
+          z.prices.push(p.price);
+          z.mid = z.prices.reduce((a,b)=>a+b,0)/z.prices.length;
+          z.touches += 1;
+          z.lastT = Math.max(z.lastT, p.t);
+          placed = true;
+          break;
+        }
+      }
+      if(!placed) zones.push({mid:p.price, prices:[p.price], touches:1, lastT:p.t});
+    }
+    return zones;
+  }
+
+  // ---------- CANDLE PATTERNS ----------
+  function classifyPattern(c0, c1){ // c1 = current, c0 = previous
+    const body1 = Math.abs(c1.c-c1.o), range1 = c1.h-c1.l || 1e-9;
+    const upper1 = c1.h - Math.max(c1.o,c1.c);
+    const lower1 = Math.min(c1.o,c1.c) - c1.l;
+    const bull1 = c1.c > c1.o, bull0 = c0.c > c0.o;
+
+    if(c0 && bull0!==bull1 && Math.abs(c1.c-c1.o) > Math.abs(c0.c-c0.o)*1.05 &&
+       ((bull1 && c1.c>=c0.o && c1.o<=c0.c) || (!bull1 && c1.o>=c0.c && c1.c<=c0.o))){
+      return bull1 ? {name:"Bullish engulfing", sign:"bull"} : {name:"Bearish engulfing", sign:"bear"};
+    }
+    if(body1/range1 < 0.12) return {name:"Doji", sign:"neu"};
+    if(lower1 > body1*2 && upper1 < body1*0.6) return {name: bull1 ? "Hammer" : "Hanging man", sign: bull1 ? "bull":"bear"};
+    if(upper1 > body1*2 && lower1 < body1*0.6) return {name: bull1 ? "Inverted hammer" : "Shooting star", sign: bull1?"neu":"bear"};
+    return null;
+  }
+
+  // ---------- MAIN ANALYSIS ----------
+  function analyze(){
+    const ex = state.execCandles, st = state.structCandles;
+    if(!ex.length || !st.length) return null;
+
+    const closes = ex.map(c=>c.c);
+    const ema20 = ema(closes,20), ema50 = ema(closes,50);
+    const rsi14 = rsi(closes,14);
+    const atr14 = atr(ex,14);
+
+    const last = ex[ex.length-1];
+    const price = last.c;
+    const prevDay = ex[Math.max(0, ex.length-289)]; // ~24h back on 5m
+    const chgPct = ((price - prevDay.c)/prevDay.c)*100;
+
+    // structure zones from 1h pivots
+    const {highs, lows} = findPivots(st, 3);
+    const tol = 0.0025;
+    let resZones = clusterZones(highs, tol).filter(z=>z.mid>price).sort((a,b)=>a.mid-b.mid);
+    let supZones = clusterZones(lows, tol).filter(z=>z.mid<price).sort((a,b)=>b.mid-a.mid);
+    resZones = resZones.slice(0,2);
+    supZones = supZones.slice(0,2);
+
+    // bias score
+    let score = 0;
+    score += (ema20[ema20.length-1] > ema50[ema50.length-1]) ? 1 : -1;
+    score += (price > ema20[ema20.length-1]) ? 1 : -1;
+    const rNow = rsi14[rsi14.length-1];
+    if(rNow>58) score+=1; else if(rNow<42) score-=1;
+    const slopeLook = 6;
+    const emaSlope = ema20[ema20.length-1] - ema20[ema20.length-1-slopeLook];
+    score += emaSlope>0 ? 0.5 : -0.5;
+    const nearestRes = resZones[0], nearestSup = supZones[0];
+    if(nearestRes && Math.abs(nearestRes.mid-price)/price < 0.003) score -= 0.5;
+    if(nearestSup && Math.abs(price-nearestSup.mid)/price < 0.003) score += 0.5;
+
+    const probBull = Math.max(5, Math.min(95, 50 + score*11));
+
+    // patterns
+    const patterns = [];
+    for(let i=Math.max(1,ex.length-40); i<ex.length; i++){
+      const p = classifyPattern(ex[i-1], ex[i]);
+      if(p) patterns.push({...p, t: ex[i].t});
+    }
+    const recentPatterns = patterns.slice(-8).reverse();
+
+    // projection cone (12h = 144 bars of 5m)
+    const nBars = 144;
+    const driftPerBar = emaSlope / slopeLook; // approx per-bar drift from ema20 slope
+    const sigma = atr14[atr14.length-1] * 0.4; // scale ATR to a per-bar stdev proxy
+    const cone = [];
+    for(let t=1;t<=nBars;t++){
+      const mid = price + driftPerBar*t;
+      const band68 = sigma*Math.sqrt(t)*1.0;
+      const band90 = sigma*Math.sqrt(t)*1.645;
+      cone.push({t, mid, lo68:mid-band68, hi68:mid+band68, lo90:mid-band90, hi90:mid+band90});
+    }
+
+    // setup generation
+    let setup = {dir:"wait", note:"No qualifying setup — price sits mid-range between structure."};
+    if(probBull >= 58 && nearestSup){
+      const entry = Math.max(nearestSup.mid*1.0006, price*0.999);
+      const stop = nearestSup.mid*0.997;
+      const target = nearestRes ? nearestRes.mid*0.997 : price*1.012;
+      const rr = (target-entry)/(entry-stop);
+      setup = {dir:"long", entry, stop, target, rr,
+        note:`Bias favors continuation. Long bias on a pullback toward the ${nearestSup.mid.toFixed(0)} zone.`,
+        inval:`Close below ${stop.toFixed(0)} on 5m invalidates the long.`};
+    } else if(probBull <= 42 && nearestRes){
+      const entry = Math.min(nearestRes.mid*0.9994, price*1.001);
+      const stop = nearestRes.mid*1.003;
+      const target = nearestSup ? nearestSup.mid*1.003 : price*0.988;
+      const rr = (entry-target)/(stop-entry);
+      setup = {dir:"short", entry, stop, target, rr,
+        note:`Bias favors downside. Short bias on a rally into the ${nearestRes.mid.toFixed(0)} zone.`,
+        inval:`Close above ${stop.toFixed(0)} on 5m invalidates the short.`};
+    }
+
+    return {price, chgPct, ema20, ema50, rsi14, atr14, resZones, supZones,
+      probBull, recentPatterns, cone, setup, execCandles:ex};
+  }
+
+  // ---------- RENDER ----------
+  function fmt(n){
+    return n.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  }
+  function fmt0(n){ return Math.round(n).toLocaleString(); }
+
+  function render(a){
+    document.getElementById("priceDisplay").textContent = "$" + fmt(a.price);
+    const chg = document.getElementById("chgDisplay");
+    chg.textContent = (a.chgPct>=0?"+":"") + a.chgPct.toFixed(2) + "% (24h)";
+    chg.className = "chg mono " + (a.chgPct>=0?"up":"down");
+
+    // bias
+    const verdictEl = document.getElementById("biasVerdict");
+    const pctEl = document.getElementById("biasPct");
+    const barEl = document.getElementById("biasBar");
+    const noteEl = document.getElementById("biasNote");
+    let vClass = "neu", vText = "NEUTRAL / RANGE-BOUND";
+    if(a.probBull>=58){ vClass="bull"; vText="BULLISH LEAN"; }
+    else if(a.probBull<=42){ vClass="bear"; vText="BEARISH LEAN"; }
+    verdictEl.textContent = vText;
+    verdictEl.className = "bias-verdict " + vClass;
+    pctEl.textContent = a.probBull.toFixed(0) + "% bullish confluence";
+    barEl.style.width = a.probBull + "%";
+    barEl.style.background = vClass==="bull" ? "var(--bull)" : vClass==="bear" ? "var(--bear)" : "var(--brass)";
+    noteEl.textContent = `Weighted read across EMA trend, RSI momentum, and proximity to structure. `+
+      `This is a heuristic confluence score, not a statistical prediction — treat it as one input, not an answer.`;
+
+    // levels
+    const lvlWrap = document.getElementById("levelsList");
+    lvlWrap.innerHTML = "";
+    const strengthLabel = t => t>=4?"strong":t>=2?"moderate":"light";
+    a.resZones.slice().reverse().forEach((z,i)=>{
+      const row = document.createElement("div");
+      row.className = "level-row";
+      row.innerHTML = `<span class="level-tag res">R${a.resZones.length-i}</span>
+        <span class="level-price mono">$${fmt0(z.mid)}</span>
+        <span class="level-strength">${strengthLabel(z.touches)} · ${z.touches}x</span>`;
+      lvlWrap.appendChild(row);
+    });
+    const cur = document.createElement("div");
+    cur.className = "current-mark";
+    cur.innerHTML = `<span class="line"></span><span>$${fmt0(a.price)} now</span><span class="line"></span>`;
+    lvlWrap.appendChild(cur);
+    a.supZones.forEach((z,i)=>{
+      const row = document.createElement("div");
+      row.className = "level-row";
+      row.innerHTML = `<span class="level-tag sup">S${i+1}</span>
+        <span class="level-price mono">$${fmt0(z.mid)}</span>
+        <span class="level-strength">${strengthLabel(z.touches)} · ${z.touches}x</span>`;
+      lvlWrap.appendChild(row);
+    });
+    if(!a.resZones.length && !a.supZones.length){
+      lvlWrap.innerHTML = '<div class="empty">No clear pivot structure in range yet.</div>';
+    }
+
+    // setup
+    const dirEl = document.getElementById("setupDir");
+    const subEl = document.getElementById("setupSub");
+    if(a.setup.dir==="wait"){
+      dirEl.textContent = "WAITING"; dirEl.className="setup-dir wait";
+      subEl.textContent = a.setup.note;
+      document.getElementById("setupEntry").textContent = "—";
+      document.getElementById("setupStop").textContent = "—";
+      document.getElementById("setupTarget").textContent = "—";
+      document.getElementById("setupRR").textContent = "—";
+      document.getElementById("setupInval").textContent = "Waiting for price to reach a defined zone.";
+    } else {
+      dirEl.textContent = a.setup.dir.toUpperCase();
+      dirEl.className = "setup-dir " + (a.setup.dir==="long"?"long":"short");
+      subEl.textContent = a.setup.note;
+      document.getElementById("setupEntry").textContent = "$"+fmt0(a.setup.entry);
+      document.getElementById("setupStop").textContent = "$"+fmt0(a.setup.stop);
+      document.getElementById("setupTarget").textContent = "$"+fmt0(a.setup.target);
+      document.getElementById("setupRR").textContent = "1 : " + Math.max(0,a.setup.rr).toFixed(1);
+      document.getElementById("setupInval").textContent = a.setup.inval;
+    }
+
+    // patterns
+    const patWrap = document.getElementById("patternList");
+    patWrap.innerHTML = "";
+    if(!a.recentPatterns.length){
+      patWrap.innerHTML = '<div class="empty">No notable patterns in the recent window.</div>';
+    } else {
+      a.recentPatterns.forEach(p=>{
+        const row = document.createElement("div");
+        row.className = "pattern-row";
+        const d = new Date(p.t);
+        const tstr = d.getHours().toString().padStart(2,"0")+":"+d.getMinutes().toString().padStart(2,"0");
+        row.innerHTML = `<span class="pattern-time mono">${tstr}</span>
+          <span>${p.name}</span>
+          <span class="pattern-tag ${p.sign}">${p.sign==="bull"?"bull":p.sign==="bear"?"bear":"neutral"}</span>`;
+        patWrap.appendChild(row);
+      });
+    }
+
+    drawChart(a);
+  }
+
+  function drawChart(a){
+    const canvas = document.getElementById("chartCanvas");
+    const wrap = canvas.parentElement;
+    const dpr = window.devicePixelRatio || 1;
+    const cssWidth = wrap.clientWidth - 16;
+    const cssHeight = 300;
+    canvas.style.width = cssWidth+"px";
+    canvas.style.height = cssHeight+"px";
+    canvas.width = cssWidth*dpr;
+    canvas.height = cssHeight*dpr;
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cssWidth,cssHeight);
+
+    document.getElementById("chartLoading").style.display = "none";
+    canvas.style.display = "block";
+
+    const candles = a.execCandles.slice(-90);
+    const histW = cssWidth*0.62;
+    const projW = cssWidth - histW - 4;
+    const padTop = 10, padBottom = 18;
+    const plotH = cssHeight - padTop - padBottom;
+
+    // price range across candles + cone 90% band
+    let lo = Math.min(...candles.map(c=>c.l));
+    let hi = Math.max(...candles.map(c=>c.h));
+    const coneLo = Math.min(...a.cone.map(p=>p.lo90));
+    const coneHi = Math.max(...a.cone.map(p=>p.hi90));
+    lo = Math.min(lo, coneLo); hi = Math.max(hi, coneHi);
+    const range = (hi-lo)*1.08 || 1;
+    const mid = (hi+lo)/2;
+    lo = mid - range/2; hi = mid + range/2;
+
+    const yFor = p => padTop + (1-( (p-lo)/(hi-lo) ))*plotH;
+
+    // zones (draw across full width behind candles)
+    function drawZone(z, color){
+      const y = yFor(z.mid);
+      ctx.fillStyle = color;
+      ctx.fillRect(0, y-3, cssWidth, 6);
+    }
+    a.resZones.forEach(z=>drawZone(z, "rgba(180,84,74,0.16)"));
+    a.supZones.forEach(z=>drawZone(z, "rgba(79,157,110,0.16)"));
+
+    // candles
+    const cw = histW/candles.length;
+    candles.forEach((c,i)=>{
+      const x = i*cw + cw/2;
+      const bull = c.c >= c.o;
+      ctx.strokeStyle = bull ? "#4f9d6e" : "#b4544a";
+      ctx.fillStyle = bull ? "#4f9d6e" : "#b4544a";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x, yFor(c.h));
+      ctx.lineTo(x, yFor(c.l));
+      ctx.stroke();
+      const yO = yFor(c.o), yC = yFor(c.c);
+      const bodyTop = Math.min(yO,yC), bodyH = Math.max(1, Math.abs(yC-yO));
+      ctx.fillRect(x-cw*0.32, bodyTop, cw*0.64, bodyH);
+    });
+
+    // projection cone
+    const startX = histW + 4;
+    const stepX = projW / a.cone.length;
+    ctx.beginPath();
+    a.cone.forEach((p,i)=>{
+      const x = startX + i*stepX;
+      const y = yFor(p.hi90);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    for(let i=a.cone.length-1;i>=0;i--){
+      const x = startX + i*stepX;
+      ctx.lineTo(x, yFor(a.cone[i].lo90));
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(176,141,87,0.10)";
+    ctx.fill();
+
+    ctx.beginPath();
+    a.cone.forEach((p,i)=>{
+      const x = startX + i*stepX;
+      const y = yFor(p.hi68);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    for(let i=a.cone.length-1;i>=0;i--){
+      const x = startX + i*stepX;
+      ctx.lineTo(x, yFor(a.cone[i].lo68));
+    }
+    ctx.closePath();
+    ctx.fillStyle = "rgba(176,141,87,0.20)";
+    ctx.fill();
+
+    // midline
+    ctx.beginPath();
+    ctx.setLineDash([4,3]);
+    a.cone.forEach((p,i)=>{
+      const x = startX + i*stepX;
+      const y = yFor(p.mid);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.strokeStyle = "#d4af7a";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // divider between history and projection
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.beginPath();
+    ctx.moveTo(histW+2, padTop);
+    ctx.lineTo(histW+2, padTop+plotH);
+    ctx.stroke();
+
+    // time labels
+    ctx.fillStyle = "#5c5e62";
+    ctx.font = "10px -apple-system, sans-serif";
+    ctx.fillText("now", histW-14, cssHeight-4);
+    ctx.fillText("+12h", cssWidth-30, cssHeight-4);
+  }
+
+  // ---------- LOOP ----------
+  async function tick(){
+    try{
+      document.getElementById("statusText").textContent = "syncing";
+      const [ex, st] = await Promise.all([
+        fetchCandles(EXEC_TF, EXEC_LIMIT),
+        fetchCandles(STRUCT_TF, STRUCT_LIMIT)
+      ]);
+      state.execCandles = ex;
+      state.structCandles = st;
+      state.lastFetch = Date.now();
+      document.getElementById("liveDot").className = "live-dot";
+      document.getElementById("statusText").textContent = "live · " + state.source;
+      const now = new Date();
+      document.getElementById("lastUpdate").textContent =
+        now.getHours().toString().padStart(2,"0")+":"+now.getMinutes().toString().padStart(2,"0")+":"+now.getSeconds().toString().padStart(2,"0");
+      const a = analyze();
+      if(a) render(a);
+    }catch(e){
+      document.getElementById("liveDot").className = "live-dot stale";
+      document.getElementById("statusText").textContent = "feed error — retrying";
+      console.error(e);
+    }
+  }
+
+  document.getElementById("refreshBtn").addEventListener("click", tick);
+  window.addEventListener("resize", ()=>{ const a = analyze(); if(a) drawChart(a); });
+
+  tick();
+  setInterval(tick, REFRESH_MS);
+})();
+</script>
+</body>
+</html>
