@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>BTC Liquidation Heat Map</title>
+<style>
+  :root{
+    --bg:#08090c;
+    --panel:#0f1116;
+    --line:#1c1f27;
+    --text:#c9d1d9;
+    --dim:#5b6472;
+    --amber:#e2a03f;
+    --green:#3fb950;
+    --red:#f85149;
+    --cyan:#39c5cf;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+    font-family:'SF Mono','JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+    -webkit-font-smoothing:antialiased;}
+  #app{max-width:900px;margin:0 auto;padding:14px 12px 40px;}
+
+  header{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px;}
+  h1{font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--text);margin:0;font-weight:600;}
+  h1 span{color:var(--amber);}
+  #clock{font-size:11px;color:var(--dim);}
+
+  .sub{font-size:11px;color:var(--dim);margin-bottom:14px;line-height:1.5;}
+  .sub b{color:var(--cyan);font-weight:600;}
+
+  .statrow{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+  .stat{flex:1;min-width:100px;background:var(--panel);border:1px solid var(--line);
+    border-radius:6px;padding:8px 10px;}
+  .stat .k{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:3px;}
+  .stat .v{font-size:15px;font-weight:600;color:var(--text);}
+  .stat .v.pos{color:var(--green);} .stat .v.neg{color:var(--red);}
+
+  #wrap{position:relative;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:10px 6px 10px 4px;margin-bottom:12px;}
+  canvas{display:block;width:100%;touch-action:none;}
+
+  #status{font-size:11px;color:var(--dim);text-align:center;padding:6px 0;min-height:16px;}
+  #status.err{color:var(--red);}
+
+  .legend{display:flex;align-items:center;justify-content:center;gap:6px;font-size:9px;
+    color:var(--dim);margin-bottom:14px;}
+  .legend .bar{width:120px;height:8px;border-radius:4px;
+    background:linear-gradient(90deg,#0f1a2e 0%,#1d3a5f 20%,#2d6ba8 35%,#39c5cf 50%,#e2a03f 68%,#f85149 85%,#ff3b3b 100%);}
+
+  .zones{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px;}
+  .zones h2{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:0 0 8px;}
+  .zrow{display:flex;justify-content:space-between;align-items:center;padding:5px 0;
+    border-bottom:1px solid var(--line);font-size:12px;}
+  .zrow:last-child{border-bottom:none;}
+  .zrow .side{width:8px;height:8px;border-radius:2px;margin-right:8px;display:inline-block;}
+  .zrow .side.long{background:var(--red);}
+  .zrow .side.short{background:var(--green);}
+  .zrow .lbl{color:var(--dim);flex:1;}
+  .zrow .price{font-weight:600;}
+
+  #refresh{width:100%;background:#161a22;border:1px solid var(--line);color:var(--cyan);
+    padding:12px;border-radius:8px;font-size:12px;letter-spacing:.05em;text-transform:uppercase;
+    font-family:inherit;font-weight:600;}
+  #refresh:active{background:#1d222d;}
+
+  footer{margin-top:16px;font-size:10px;color:var(--dim);line-height:1.6;text-align:center;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header>
+    <h1>BTC <span>LIQ</span> MAP</h1>
+    <div id="clock">--:--:--</div>
+  </header>
+  <div class="sub">Estimated liquidation density from open-interest deltas across leverage tiers.
+    <b>Not exchange-sourced liq data</b> — a model, not a feed.</div>
+
+  <div class="statrow">
+    <div class="stat"><div class="k">Mark Price</div><div class="v" id="statPrice">–</div></div>
+    <div class="stat"><div class="k">Funding</div><div class="v" id="statFunding">–</div></div>
+    <div class="stat"><div class="k">Open Interest</div><div class="v" id="statOI">–</div></div>
+    <div class="stat"><div class="k">Source</div><div class="v" id="statSrc" style="font-size:12px">–</div></div>
+  </div>
+
+  <div id="wrap">
+    <canvas id="hm"></canvas>
+  </div>
+
+  <div class="legend"><span>low</span><div class="bar"></div><span>high density</span></div>
+
+  <div id="status">Loading…</div>
+
+  <div class="zones">
+    <h2>Nearest Est. Clusters</h2>
+    <div id="zoneList"></div>
+  </div>
+
+  <button id="refresh">Refresh Now</button>
+
+  <footer>
+    Model: OI deltas × standard leverage-tier distribution (5x–125x) → estimated liq price per bucket, decayed over time.
+    Longs liquidate below entry, shorts liquidate above. Treat clusters as probability-weighted magnets, not certainties.
+    Data: Binance Futures, fallback MEXC. Auto-refreshes every 60s.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('hm');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const clockEl = document.getElementById('clock');
+
+  let lastGood = null;
+
+  function fmtUSD(n, dec=0){
+    return '$' + Number(n).toLocaleString('en-US',{maximumFractionDigits:dec, minimumFractionDigits:dec});
+  }
+  function tick(){
+    clockEl.textContent = new Date().toLocaleTimeString('en-US',{hour12:false});
+  }
+  tick(); setInterval(tick, 1000);
+
+  // ---- leverage tier distribution (rough retail-flow approximation) ----
+  const TIERS = [
+    {lev:5,  weight:0.10, mmr:0.10},
+    {lev:10, weight:0.22, mmr:0.05},
+    {lev:20, weight:0.24, mmr:0.025},
+    {lev:25, weight:0.16, mmr:0.02},
+    {lev:50, weight:0.16, mmr:0.01},
+    {lev:75, weight:0.07, mmr:0.0065},
+    {lev:100,weight:0.05, mmr:0.005},
+  ];
+
+  async function fetchJSON(url){
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    return res.json();
+  }
+
+  async function loadBinance(){
+    const sym = 'BTCUSDT';
+    const [prem, klines, oiHist] = await Promise.all([
+      fetchJSON(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym}`),
+      fetchJSON(`https://fapi.binance.com/fapi/v1/klines?symbol=${sym}&interval=1h&limit=200`),
+      fetchJSON(`https://fapi.binance.com/futures/data/openInterestHist?symbol=${sym}&period=1h&limit=200`)
+    ]);
+    const price = parseFloat(prem.markPrice);
+    const funding = parseFloat(prem.lastFundingRate);
+    const candles = klines.map(k=>({
+      t:k[0], open:parseFloat(k[1]), high:parseFloat(k[2]), low:parseFloat(k[3]),
+      close:parseFloat(k[4]), vol:parseFloat(k[5]),
+      takerBuyVol:parseFloat(k[9])
+    }));
+    const oiSeries = oiHist.map(o=>({t:o.timestamp, oi:parseFloat(o.sumOpenInterest)}));
+    return {price, funding, candles, oiSeries, source:'Binance'};
+  }
+
+  async function loadMEXC(){
+    // MEXC contract fallback (subset of needed fields)
+    const sym = 'BTC_USDT';
+    const [ticker, klines] = await Promise.all([
+      fetchJSON(`https://contract.mexc.com/api/v1/contract/ticker?symbol=${sym}`),
+      fetchJSON(`https://contract.mexc.com/api/v1/contract/kline/${sym}?interval=Min60&start=${Math.floor(Date.now()/1000)-200*3600}&end=${Math.floor(Date.now()/1000)}`)
+    ]);
+    const t = ticker.data;
+    const price = parseFloat(t.lastPrice);
+    const funding = parseFloat(t.fundingRate || 0);
+    const k = klines.data;
+    const candles = k.time.map((ts,i)=>({
+      t: ts*1000, open:k.open[i], high:k.high[i], low:k.low[i], close:k.close[i],
+      vol:k.vol[i], takerBuyVol:k.vol[i]*0.5
+    }));
+    // MEXC doesn't expose OI history publicly the same way -> derive proxy from volume deltas
+    const oiSeries = candles.map(c=>({t:c.t, oi:c.vol}));
+    return {price, funding, candles, oiSeries, source:'MEXC (proxy OI)'};
+  }
+
+  function buildHeatmap(data){
+    const { price, candles, oiSeries } = data;
+    // OI delta per hour = proxy for new position volume opened at that candle's price
+    const deltas = [];
+    for(let i=1;i<oiSeries.length;i++){
+      const d = oiSeries[i].oi - oiSeries[i-1].oi;
+      deltas.push({t:oiSeries[i].t, delta:d});
+    }
+    // map candle by nearest timestamp
+    function candleAt(ts){
+      let best=null, bd=Infinity;
+      for(const c of candles){
+        const d = Math.abs(c.t-ts);
+        if(d<bd){bd=d;best=c;}
+      }
+      return best;
+    }
+
+    const buckets = {}; // priceLevel(rounded) -> intensity
+    const now = Date.now();
+    const bucketSize = Math.max(25, Math.round(price*0.0005/25)*25); // ~0.05% of price, min $25
+
+    deltas.forEach(d=>{
+      if(Math.abs(d.delta) < 1e-9) return;
+      const c = candleAt(d.t);
+      if(!c) return;
+      const entry = c.close;
+      const ageHours = (now - d.t)/3600000;
+      const decay = Math.exp(-ageHours/240); // ~10 day half-life-ish decay
+      const magnitude = Math.abs(d.delta) * decay;
+      const isLongFlow = d.delta > 0
+        ? (c.takerBuyVol / Math.max(c.vol,1e-9)) >= 0.5   // OI rose, buy-heavy -> longs opening
+        : (c.takerBuyVol / Math.max(c.vol,1e-9)) < 0.5;   // OI rose via sell-heavy -> shorts; falling OI = closes, weight down
+
+      const oiRising = d.delta > 0;
+      if(!oiRising) return; // only rising OI = new leveraged positions being opened
+
+      TIERS.forEach(tier=>{
+        const w = magnitude * tier.weight;
+        let liqPrice;
+        if(isLongFlow){
+          liqPrice = entry * (1 - 1/tier.lev + tier.mmr);
+        } else {
+          liqPrice = entry * (1 + 1/tier.lev - tier.mmr);
+        }
+        const key = Math.round(liqPrice/bucketSize)*bucketSize;
+        buckets[key] = (buckets[key]||0) + w;
+      });
+    });
+
+    return { buckets, bucketSize };
+  }
+
+  function render(data, heat){
+    const { price, funding } = data;
+    document.getElementById('statPrice').textContent = fmtUSD(price,0);
+    const fEl = document.getElementById('statFunding');
+    fEl.textContent = (funding*100).toFixed(4)+'%';
+    fEl.className = 'v ' + (funding>=0?'pos':'neg');
+    document.getElementById('statOI').textContent = data.oiSeries?.length
+      ? Number(data.oiSeries[data.oiSeries.length-1].oi).toLocaleString('en-US',{maximumFractionDigits:0})
+      : '–';
+    document.getElementById('statSrc').textContent = data.source;
+
+    // ---- canvas heatmap ----
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.parentElement.clientWidth - 12;
+    const cssH = 460;
+    canvas.style.width = cssW+'px';
+    canvas.style.height = cssH+'px';
+    canvas.width = cssW*dpr;
+    canvas.height = cssH*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,cssW,cssH);
+
+    const buckets = heat.buckets;
+    const keys = Object.keys(buckets).map(Number);
+    if(keys.length === 0){
+      ctx.fillStyle = '#5b6472';
+      ctx.font = '12px monospace';
+      ctx.fillText('Not enough OI history yet to model clusters.', 10, cssH/2);
+      return;
+    }
+    const maxV = Math.max(...keys.map(k=>buckets[k]));
+
+    // vertical price range: center on price, +/- 8%
+    const range = price*0.08;
+    const pMin = price - range;
+    const pMax = price + range;
+
+    const leftPad = 70, rightPad = 14, topPad = 10, botPad = 10;
+    const plotW = cssW - leftPad - rightPad;
+    const plotH = cssH - topPad - botPad;
+
+    function yForPrice(p){
+      return topPad + (pMax - p)/(pMax-pMin) * plotH;
+    }
+
+    // draw heat bars
+    const barH = Math.max(3, heat.bucketSize/(pMax-pMin)*plotH);
+    keys.forEach(k=>{
+      if(k < pMin || k > pMax) return;
+      const intensity = buckets[k]/maxV; // 0..1
+      const y = yForPrice(k);
+      ctx.fillStyle = heatColor(intensity);
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(leftPad, y-barH/2, plotW, barH);
+    });
+    ctx.globalAlpha = 1;
+
+    // gridlines + price labels
+    ctx.strokeStyle = '#1c1f27';
+    ctx.fillStyle = '#5b6472';
+    ctx.font = '10px monospace';
+    ctx.textBaseline = 'middle';
+    const steps = 8;
+    for(let i=0;i<=steps;i++){
+      const p = pMax - (i/steps)*(pMax-pMin);
+      const y = yForPrice(p);
+      ctx.beginPath();
+      ctx.moveTo(leftPad,y); ctx.lineTo(cssW-rightPad,y);
+      ctx.stroke();
+      ctx.fillText(fmtUSD(p,0), 6, y);
+    }
+
+    // current price line
+    const cy = yForPrice(price);
+    ctx.strokeStyle = '#e2a03f';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4,3]);
+    ctx.beginPath();
+    ctx.moveTo(leftPad, cy); ctx.lineTo(cssW-rightPad, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#e2a03f';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText('MARK '+fmtUSD(price,0), leftPad+4, cy-8);
+
+    // zone list: top 5 clusters nearest to price, split above/below
+    const above = keys.filter(k=>k>price).sort((a,b)=>a-b);
+    const below = keys.filter(k=>k<price).sort((a,b)=>b-a);
+    function topN(arr,n){
+      return arr.map(k=>({price:k, w:buckets[k]}))
+                 .sort((a,b)=>b.w-a.w).slice(0,n)
+                 .sort((a,b)=>b.price-a.price);
+    }
+    const shortClusters = topN(above,3); // shorts liquidate on the way up
+    const longClusters = topN(below,3);  // longs liquidate on the way down
+
+    const zoneList = document.getElementById('zoneList');
+    zoneList.innerHTML = '';
+    shortClusters.forEach(z=>{
+      zoneList.innerHTML += `<div class="zrow"><span class="side short"></span>
+        <span class="lbl">Short liqs (above)</span><span class="price">${fmtUSD(z.price,0)}</span></div>`;
+    });
+    longClusters.forEach(z=>{
+      zoneList.innerHTML += `<div class="zrow"><span class="side long"></span>
+        <span class="lbl">Long liqs (below)</span><span class="price">${fmtUSD(z.price,0)}</span></div>`;
+    });
+    if(shortClusters.length===0 && longClusters.length===0){
+      zoneList.innerHTML = '<div class="zrow"><span class="lbl">No significant clusters yet</span></div>';
+    }
+  }
+
+  function heatColor(t){
+    // t: 0..1 -> deep blue -> cyan -> amber -> red
+    const stops = [
+      [0.00,[15,26,46]],
+      [0.20,[29,58,95]],
+      [0.35,[45,107,168]],
+      [0.50,[57,197,207]],
+      [0.68,[226,160,63]],
+      [0.85,[248,81,73]],
+      [1.00,[255,59,59]],
+    ];
+    for(let i=0;i<stops.length-1;i++){
+      const [t0,c0]=stops[i], [t1,c1]=stops[i+1];
+      if(t>=t0 && t<=t1){
+        const f = (t-t0)/(t1-t0);
+        const r = Math.round(c0[0]+(c1[0]-c0[0])*f);
+        const g = Math.round(c0[1]+(c1[1]-c0[1])*f);
+        const b = Math.round(c0[2]+(c1[2]-c0[2])*f);
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+    return 'rgb(255,59,59)';
+  }
+
+  async function load(){
+    statusEl.className=''; statusEl.textContent = 'Fetching live data…';
+    try{
+      const data = await loadBinance();
+      lastGood = data;
+      const heat = buildHeatmap(data);
+      render(data, heat);
+      statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour12:false}) + ' · Binance';
+    }catch(e1){
+      try{
+        const data = await loadMEXC();
+        lastGood = data;
+        const heat = buildHeatmap(data);
+        render(data, heat);
+        statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour12:false}) + ' · MEXC fallback';
+      }catch(e2){
+        statusEl.className = 'err';
+        statusEl.textContent = 'Fetch failed: ' + (e2.message||e1.message) + '. Tap Refresh to retry.';
+        if(lastGood){
+          const heat = buildHeatmap(lastGood);
+          render(lastGood, heat);
+        }
+      }
+    }
+  }
+
+  document.getElementById('refresh').addEventListener('click', load);
+  window.addEventListener('resize', ()=>{ if(lastGood) render(lastGood, buildHeatmap(lastGood)); });
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
